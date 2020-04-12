@@ -1,15 +1,26 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #define NUM_THREADS 2
+
 typedef void *(*process_func_pointer_t)(void *);
+
 typedef struct {
-    int passed_timestamp;
+    int sender;
+    int receiver;
+    int sent_timestamp;
+    int received_timestamp;
+} Event;
+
+typedef struct {
+    Event *passed_event;
 } Channel;
 
 typedef struct {
     int id;
     int timestamp;
+    Event *events;
 } Process;
 
 Channel channels[NUM_THREADS][NUM_THREADS];
@@ -21,21 +32,49 @@ int max(int x, int y) {
     return y;
 }
 
-void send(Process(*sender), int receiver_id) {
-    printf("Sent from %d to %d\n", (*sender).id, receiver_id);
-    channels[(*sender).id][receiver_id].passed_timestamp = (*sender).timestamp;
-    ++(*sender).timestamp;
+void send(Process *sender, int receiver_id) {
+    int sender_id = sender->id;
+
+    printf("Sent from %d to %d\n", sender_id, receiver_id);
+
+    Event *event = (Event *)malloc(sizeof(Event));
+    *event = (Event){.sender = sender_id,
+                     .receiver = receiver_id,
+                     .sent_timestamp = sender->timestamp,
+                     .received_timestamp = -1};
+
+    channels[sender_id][receiver_id].passed_event = event;
+
+    Event *sent_event = channels[sender_id][receiver_id].passed_event;
+    printf("Sent event: sender_id: %d, receiver_id: %d, sent_timestamp %d\n",
+           sent_event->sender, sent_event->receiver,
+           sent_event->sent_timestamp);
+
+    ++(sender->timestamp);
 };
 
 void receive(Process *receiver, int sender_id) {
-    while (channels[sender_id][(*receiver).id].passed_timestamp == -1) {
-    }
-    printf("Received at %d from %d\n", (*receiver).id, sender_id);
-    (*receiver).timestamp =
-        max(channels[sender_id][(*receiver).id].passed_timestamp + 1,
-            (*receiver).timestamp);
-    ++(*receiver).timestamp;
-    channels[sender_id][(*receiver).id].passed_timestamp = -1;
+    int receiver_id = receiver->id;
+    while (channels[sender_id][receiver_id].passed_event == NULL)
+        ;
+
+    printf("Received at %d from %d\n", receiver_id, sender_id);
+
+    Event *received_event = channels[sender_id][receiver_id].passed_event;
+
+    printf(
+        "Received event: sender_id: %d, receiver_id: %d, sent_timestamp %d, "
+        "received_timestamp: %d\n",
+        received_event->sender, received_event->receiver,
+        received_event->sent_timestamp, received_event->received_timestamp);
+
+    receiver->timestamp =
+        max(receiver->timestamp, received_event->sent_timestamp + 1);
+    received_event->received_timestamp == receiver->timestamp;
+
+    channels[sender_id][receiver_id].passed_event = NULL;
+
+    ++(receiver->timestamp);
 };
 
 void *process_0(void *thd_id) {
@@ -64,8 +103,8 @@ void execute_processes(process_func_pointer_t processes[]) {
 
     for (int i = 0; i < NUM_THREADS; ++i) {
         for (int j = 0; j < NUM_THREADS; ++j) {
-            channels[i][j].passed_timestamp = -1;
-            channels[j][i].passed_timestamp = -1;
+            channels[i][j].passed_event = NULL;
+            channels[j][i].passed_event = NULL;
         }
     }
 
