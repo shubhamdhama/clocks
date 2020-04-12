@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #define NUM_THREADS 2
+#define MAX_EVENTS_COUNT 30
 
 typedef void *(*process_func_pointer_t)(void *);
 
@@ -20,7 +21,8 @@ typedef struct {
 typedef struct {
     int id;
     int timestamp;
-    Event *events;
+    Event **events;
+    int event_counter;
 } Process;
 
 Channel channels[NUM_THREADS][NUM_THREADS];
@@ -30,6 +32,14 @@ int max(int x, int y) {
         return x;
     }
     return y;
+}
+
+int print_event(Event *event) {
+    printf(
+        "Event: sender: %d, receiver: %d, sent_timestamp: %d, "
+        "received_timestamp: %d\n",
+        event->sender, event->receiver, event->sent_timestamp,
+        event->received_timestamp);
 }
 
 void send(Process *sender, int receiver_id) {
@@ -46,11 +56,14 @@ void send(Process *sender, int receiver_id) {
     channels[sender_id][receiver_id].passed_event = event;
 
     Event *sent_event = channels[sender_id][receiver_id].passed_event;
-    printf("Sent event: sender_id: %d, receiver_id: %d, sent_timestamp %d\n",
-           sent_event->sender, sent_event->receiver,
-           sent_event->sent_timestamp);
+
+    sender->events[sender->event_counter] = event;
+    ++sender->event_counter;
 
     ++(sender->timestamp);
+
+    printf("Sent ");
+    print_event(sent_event);
 };
 
 void receive(Process *receiver, int sender_id) {
@@ -62,40 +75,71 @@ void receive(Process *receiver, int sender_id) {
 
     Event *received_event = channels[sender_id][receiver_id].passed_event;
 
-    printf(
-        "Received event: sender_id: %d, receiver_id: %d, sent_timestamp %d, "
-        "received_timestamp: %d\n",
-        received_event->sender, received_event->receiver,
-        received_event->sent_timestamp, received_event->received_timestamp);
-
     receiver->timestamp =
         max(receiver->timestamp, received_event->sent_timestamp + 1);
-    received_event->received_timestamp == receiver->timestamp;
+    received_event->received_timestamp = receiver->timestamp;
 
     channels[sender_id][receiver_id].passed_event = NULL;
 
+    receiver->events[receiver->event_counter] = received_event;
+    ++receiver->event_counter;
+
     ++(receiver->timestamp);
+
+    printf("Received ");
+    print_event(received_event);
 };
+
+Process create_process(int process_id) {
+    Process process = (Process){
+        .id = process_id,
+        .timestamp = 0,
+        .events = NULL,
+        .event_counter = 0,
+    };
+    process.events = (Event **)malloc(MAX_EVENTS_COUNT * sizeof(Event *));
+    return process;
+}
+
+void print_process_events(Process *process) {
+    printf("\n\n");
+    printf("Clock time at end of process %d: %d\n", process->id,
+           process->timestamp);
+    printf("Total events occured %d\n", process->event_counter);
+    for (int i = 0; i < process->event_counter; ++i) {
+        if (process->id == process->events[i]->sender) {
+            printf("Sent ");
+        } else {
+            printf("Received ");
+        }
+        printf("%d ", i);
+        print_event(process->events[i]);
+    }
+    printf("\n\n");
+}
 
 void *process_0(void *thd_id) {
     long virtual_process_id = (long)thd_id;
     printf("Process: %ld\n", virtual_process_id);
 
-    Process p_0 = {0, 0};
+    Process p_0 = create_process(virtual_process_id);
 
     send(&p_0, 1);
     receive(&p_0, 1);
-    printf("%d\n", p_0.timestamp);
+
+    print_process_events(&p_0);
 }
 
 void *process_1(void *thd_id) {
     long virtual_process_id = (long)thd_id;
     printf("Process: %ld\n", virtual_process_id);
 
-    Process p_1 = {1, 0};
+    Process p_1 = create_process(virtual_process_id);
+
     receive(&p_1, 0);
     send(&p_1, 0);
-    printf("%d\n", p_1.timestamp);
+
+    print_process_events(&p_1);
 }
 
 void execute_processes(process_func_pointer_t processes[]) {
